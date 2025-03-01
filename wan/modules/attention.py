@@ -1,5 +1,7 @@
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
 import torch
+import math
+import pdb
 
 try:
     import flash_attn_interface
@@ -33,7 +35,8 @@ def flash_attention(
     causal=False,
     window_size=(-1, -1),
     deterministic=False,
-    dtype=torch.bfloat16,
+    # dtype=torch.bfloat16,
+    dtype=torch.float16,
     version=None,
 ):
     """
@@ -55,7 +58,7 @@ def flash_attention(
 
     # params
     b, lq, lk, out_dtype = q.size(0), q.size(1), k.size(1), q.dtype
-
+    assert b == 1, "batch size must be 1"
     def half(x):
         return x if x.dtype in half_dtypes else x.to(dtype)
 
@@ -78,9 +81,14 @@ def flash_attention(
     else:
         k = half(torch.cat([u[:v] for u, v in zip(k, k_lens)]))
         v = half(torch.cat([u[:v] for u, v in zip(v, k_lens)]))
-
-    q = q.to(v.dtype)
-    k = k.to(v.dtype)
+    
+    # q = q.to(v.dtype)
+    # k = k.to(v.dtype)
+    
+    v = v.to(q.dtype)
+    assert q.dtype == torch.float16
+    assert k.dtype == torch.float16
+    assert v.dtype == torch.float16
 
     if q_scale is not None:
         q = q * q_scale
@@ -108,7 +116,7 @@ def flash_attention(
             softmax_scale=softmax_scale,
             causal=causal,
             deterministic=deterministic)[0].unflatten(0, (b, lq))
-    else:
+    elif version == 2 and FLASH_ATTN_2_AVAILABLE:
         assert FLASH_ATTN_2_AVAILABLE
         x = flash_attn.flash_attn_varlen_func(
             q=q,
@@ -124,9 +132,45 @@ def flash_attention(
             softmax_scale=softmax_scale,
             causal=causal,
             window_size=window_size,
-            deterministic=deterministic).unflatten(0, (b, lq))
+            # deterministic=deterministic
+        ).unflatten(0, (b, lq))
+    else:
+        # ================================================
+        # # NOTE: Assume batch_size = 1
+        # ================================================
+        # # q shape: (seq_len, num_head, head_dim)
+        # SQ, NH, HD = q.shape
+        # q = q.permute(1, 0, 2) # (NH, SQ, HD)
+        # k = k.permute(1, 0, 2)
+        # attn_qk_scores = torch.matmul(q, k.transpose(-2, -1)) # (NH, SQ, SQ)
+        # attn_qk_scores = attn_qk_scores / math.sqrt(HD + 1e-8)
+        # attn_qk_scores = torch.softmax(attn_qk_scores, dim=-1) # softmax along K
+        # # (NH, Q_SQ, K_SQ) @ (NH, K_SQ, HD)
+        # x = torch.matmul(attn_qk_scores, v.tranpose(0, 1))
+        # x = x.unsqueeze(0) # (batch=1, NH, SQ, HD)
+        # ================================================
+        
+        from xformers.ops import memory_efficient_attention
+        from xformers.ops.fmha.attn_bias import BlockDiagonalMask
+        
+        # print(f"q_lens: {[lq] * b}, k_lens: {[lk] * b}")
+        
+        bd_mask = BlockDiagonalMask.from_seqlens(
+            [lq] * b,
+            [lk] * b,
+            device=q.device
+        )
+        x = memory_efficient_attention(
+            q.unsqueeze(0),
+            k.unsqueeze(0),
+            v.unsqueeze(0),
+            attn_bias = bd_mask,
+            p = dropout_p # FIXME: dropout is not set yet
+        )
+        
+        # reshape (bs * seq_len, num_head, head_dim) -> (bs, seq_len, num_head * head_dim)
+        x = x.reshape(b, lq, -1)
 
-    # output
     return x.type(out_dtype)
 
 
