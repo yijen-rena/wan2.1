@@ -19,6 +19,23 @@ In this repository, we present **Wan2.1**, a comprehensive and open suite of vid
 - 👍 **Visual Text Generation**: **Wan2.1** is the first video model capable of generating both Chinese and English text, featuring robust text generation that enhances its practical applications.
 - 👍 **Powerful Video VAE**: **Wan-VAE** delivers exceptional efficiency and performance, encoding and decoding 1080P videos of any length while preserving temporal information, making it an ideal foundation for video and image generation.
 
+## Running on PSC
+
+### System Requirements
+```
+module load cuda/12.4
+```
+
+### Installation
+```
+python3 -m pip install torch torchvision # pytorch 2.6.0 for cuda 12.4
+```
+
+### Inference:
+```
+python generate.py  --task t2v-1.3B --size 832*480 --ckpt_dir Wan2.1-T2V-1.3B --sample_shift 8 --sample_guide_scale 6 --prompt "Two anthropomorphic cats in comfy boxing gear and bright gloves fight intensely on a spotlighted stage."
+```
+
 ## Video Demos
 
 <div align="center">
