@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import warnings
+import glob
 
 warnings.filterwarnings('ignore')
 
@@ -186,6 +187,11 @@ def _parse_args():
         type=float,
         default=5.0,
         help="Classifier free guidance scale.")
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="./outputs",
+        help="The directory to save the generated image or video to.")
 
     args = parser.parse_args()
 
@@ -212,6 +218,25 @@ def generate(args):
     local_rank = int(os.getenv("LOCAL_RANK", 0))
     device = local_rank
     _init_logging(rank)
+    
+    if rank == 0:
+        if args.save_file is None:
+            formatted_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            formatted_prompt = args.prompt.replace(" ", "_").replace("/",
+                                                                        "_")[:50].lower()
+            suffix = '.png' if "t2i" in args.task else '.mp4'
+            
+            output_dir = os.path.join(args.output_dir, formatted_prompt)
+            os.makedirs(output_dir, exist_ok=True)
+            
+            args.save_file = os.path.join(output_dir, \
+                f"{args.task}_{formatted_prompt}_{args.base_seed}_{args.size}_{formatted_time}" + suffix)
+        
+        seed_pattern = f"_{args.base_seed}_"
+        print(f"Checking for existing video with seed pattern: {output_dir}/*{seed_pattern}*")
+        if glob.glob(f"{output_dir}/*{seed_pattern}*"):
+            logging.info(f"Video for seed {args.base_seed} already exists at {args.save_file}, skipping generation.")
+            sys.exit(0)
 
     if args.offload_model is None:
         args.offload_model = False if world_size > 1 else True
@@ -379,13 +404,20 @@ def generate(args):
             offload_model=args.offload_model)
 
     if rank == 0:
-        if args.save_file is None:
-            formatted_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-            formatted_prompt = args.prompt.replace(" ", "_").replace("/",
-                                                                     "_")[:50]
-            suffix = '.png' if "t2i" in args.task else '.mp4'
-            args.save_file = f"{args.task}_{args.size}_{args.ulysses_size}_{args.ring_size}_{formatted_prompt}_{formatted_time}" + suffix
-
+        # @rju EDIT: moved this logic to the beginning of the function
+        
+        # if args.save_file is None:
+        #     formatted_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        #     formatted_prompt = args.prompt.replace(" ", "_").replace("/",
+        #                                                              "_")[:50].lower()
+        #     suffix = '.png' if "t2i" in args.task else '.mp4'
+            
+        #     output_dir = os.path.join(args.output_dir, formatted_prompt)
+        #     os.makedirs(output_dir, exist_ok=True)
+            
+        #     args.save_file = os.path.join(output_dir, \
+        #         f"{args.task}_{formatted_prompt}_{args.base_seed}_{args.size}_{formatted_time}" + suffix)
+            
         if "t2i" in args.task:
             logging.info(f"Saving generated image to {args.save_file}")
             cache_image(

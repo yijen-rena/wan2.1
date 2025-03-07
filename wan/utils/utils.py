@@ -8,6 +8,8 @@ import imageio
 import torch
 import torchvision
 
+from PIL import Image
+
 __all__ = ['cache_video', 'cache_image', 'str2bool']
 
 
@@ -45,6 +47,12 @@ def cache_video(tensor,
             ],
                                  dim=1).permute(1, 2, 3, 0)
             tensor = (tensor * 255).type(torch.uint8).cpu()
+            
+            # @rju: also save the first frame as a png
+            frame_0 = tensor[0].numpy()
+            frame_0_img = Image.fromarray(frame_0)
+            frame_0_path = cache_file.replace('.mp4', '_0.png')
+            frame_0_img.save(frame_0_path)
 
             # write video
             writer = imageio.get_writer(

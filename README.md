@@ -23,6 +23,7 @@ In this repository, we present **Wan2.1**, a comprehensive and open suite of vid
 
 ### System Requirements
 ```
+srun -p GPU-shared --mem=60G --gpus=v100-32:1 --time=8:00:00 --pty bash -i
 module load cuda/12.4
 ```
 
